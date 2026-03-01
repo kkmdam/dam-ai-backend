@@ -3,16 +3,19 @@ from flask_cors import CORS
 import google.generativeai as genai
 import requests
 import os
+import json
 
 app = Flask(__name__)
-CORS(app) # Allows your HTML to talk to this Python file
+# This allows browsers to talk to this server
+CORS(app)
 
 # The server will hold these keys securely
 GEMINI_KEY = os.environ.get("GEMINI_API_KEY")
 WEATHER_KEY = os.environ.get("WEATHER_API_KEY")
 
-genai.configure(api_key=GEMINI_KEY)
-model = genai.GenerativeModel('gemini-pro')
+if GEMINI_KEY:
+    genai.configure(api_key=GEMINI_KEY)
+    model = genai.GenerativeModel('gemini-pro')
 
 def get_kakkayam_weather():
     """Fetches the 24-hour rainfall forecast for Kakkayam Dam."""
@@ -21,7 +24,6 @@ def get_kakkayam_weather():
     try:
         response = requests.get(url).json()
         rain_total = 0
-        # Check the next 8 periods (which covers 24 hours, as each is 3 hours)
         for item in response.get('list', [])[:8]:
             if 'rain' in item and '3h' in item['rain']:
                 rain_total += item['rain']['3h']
@@ -29,14 +31,46 @@ def get_kakkayam_weather():
     except Exception as e:
         return "Weather data currently unavailable."
 
-@app.route('/api/generate-advisory', methods=['POST'])
-def generate_advisory():
+# NOTE: We added 'OPTIONS' here to answer the browser's security check!
+@app.route('/api/parse-plan', methods=['POST', 'OPTIONS'])
+def parse_plan():
+    # Warmly answer the browser's test knock
+    if request.method == 'OPTIONS':
+        return jsonify({}), 200
+        
     data = request.json
+    user_message = data.get('message', '')
     
-    # 1. Get the live weather
+    prompt = f"""
+    You are an AI assistant for a dam control room. Extract the following parameters from the user's message and return ONLY a strict JSON object. If a value is not mentioned, use null.
+    User Message: "{user_message}"
+    
+    Expected JSON format:
+    {{
+      "target_wl": float (the target water level in meters),
+      "time_hours": float (how many hours to evacuate),
+      "inflow": float (inflow in cumecs),
+      "powerhouse": float (powerhouse discharge in cumecs)
+    }}
+    """
+    try:
+        response = model.generate_content(prompt)
+        clean_json = response.text.replace('```json', '').replace('```', '').strip()
+        parsed_data = json.loads(clean_json)
+        return jsonify({"status": "success", "data": parsed_data})
+    except Exception as e:
+        return jsonify({"status": "error", "message": "Could not parse parameters."}), 400
+
+# NOTE: We added 'OPTIONS' here too!
+@app.route('/api/generate-advisory', methods=['POST', 'OPTIONS'])
+def generate_advisory():
+    # Warmly answer the browser's test knock
+    if request.method == 'OPTIONS':
+        return jsonify({}), 200
+        
+    data = request.json
     weather_forecast = get_kakkayam_weather()
     
-    # 2. Tell the AI what is happening
     prompt = f"""
     You are the Chief Engineer AI for Kakkayam Dam. 
     Current Dam Status:
@@ -49,11 +83,11 @@ def generate_advisory():
     If the planned discharge is high AND heavy rain is expected, warn them. 
     Then, write a short official WhatsApp advisory for the District Collector.
     """
-    
-    # 3. Get the AI's answer and send it back to the HTML
-    response = model.generate_content(prompt)
-    return jsonify({"status": "success", "advisory": response.text, "weather": weather_forecast})
+    try:
+        response = model.generate_content(prompt)
+        return jsonify({"status": "success", "advisory": response.text, "weather": weather_forecast})
+    except Exception as e:
+        return jsonify({"status": "error", "advisory": "Error generating AI response."})
 
-# This line starts the server
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=8080)
