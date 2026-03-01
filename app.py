@@ -4,9 +4,10 @@ import google.generativeai as genai
 import requests
 import os
 import json
+import traceback
 
 app = Flask(__name__)
-CORS(app) # Let Flask handle standard traffic, Vercel handles security
+CORS(app)
 
 GEMINI_KEY = os.environ.get("GEMINI_API_KEY")
 WEATHER_KEY = os.environ.get("WEATHER_API_KEY")
@@ -30,6 +31,7 @@ def get_kakkayam_weather():
 
 @app.route('/api/parse-plan', methods=['POST'])
 def parse_plan():
+    print("--- NEW AI REQUEST RECEIVED ---")
     data = request.json or {}
     user_message = data.get('message', '')
     
@@ -46,12 +48,18 @@ def parse_plan():
     }}
     """
     try:
+        if not GEMINI_KEY:
+            raise ValueError("GEMINI_API_KEY is missing from Vercel Environment Variables!")
+            
         response = model.generate_content(prompt)
         clean_json = response.text.replace('```json', '').replace('```', '').strip()
         parsed_data = json.loads(clean_json)
+        print("AI SUCCESS:", parsed_data)
         return jsonify({"status": "success", "data": parsed_data})
     except Exception as e:
-        return jsonify({"status": "error", "message": "Could not parse parameters."}), 400
+        error_trace = traceback.format_exc()
+        print(f"!!! CRITICAL AI ERROR !!!\n{error_trace}")
+        return jsonify({"status": "error", "message": str(e)}), 400
 
 @app.route('/api/generate-advisory', methods=['POST'])
 def generate_advisory():
@@ -71,9 +79,14 @@ def generate_advisory():
     Then, write a short official WhatsApp advisory for the District Collector.
     """
     try:
+        if not GEMINI_KEY:
+            raise ValueError("GEMINI_API_KEY is missing from Vercel Environment Variables!")
+            
         response = model.generate_content(prompt)
         return jsonify({"status": "success", "advisory": response.text, "weather": weather_forecast})
     except Exception as e:
+        error_trace = traceback.format_exc()
+        print(f"!!! CRITICAL AI ERROR !!!\n{error_trace}")
         return jsonify({"status": "error", "advisory": "Error generating AI response."})
 
 if __name__ == '__main__':
