@@ -4,7 +4,6 @@ import google.generativeai as genai
 import requests
 import os
 import json
-import traceback
 
 app = Flask(__name__)
 CORS(app)
@@ -31,14 +30,14 @@ def get_kakkayam_weather():
 
 @app.route('/api/parse-plan', methods=['POST'])
 def parse_plan():
-    print("--- NEW AI REQUEST RECEIVED ---")
-    
-    # THE FIX: tell Flask not to panic, just quietly accept the data
     data = request.get_json(silent=True) or {}
     user_message = data.get('message', '')
     
+    if not GEMINI_KEY:
+        return jsonify({"status": "error", "message": "GEMINI_API_KEY is missing from Vercel Settings!"}), 400
+        
     prompt = f"""
-    You are an AI assistant for a dam control room. Extract the following parameters from the user's message and return ONLY a strict JSON object. If a value is not mentioned, use null.
+    You are an AI assistant for a dam control room. Extract the following parameters from the user's message and return ONLY a strict JSON object. Do not include markdown formatting. If a value is not mentioned, use null.
     User Message: "{user_message}"
     
     Expected JSON format:
@@ -49,48 +48,39 @@ def parse_plan():
       "powerhouse": float
     }}
     """
+    
     try:
-        if not GEMINI_KEY:
-            raise ValueError("GEMINI_API_KEY is missing from Vercel Environment Variables!")
-            
         response = model.generate_content(prompt)
-        clean_json = response.text.replace('```json', '').replace('```', '').strip()
-        parsed_data = json.loads(clean_json)
-        print("AI SUCCESS:", parsed_data)
-        return jsonify({"status": "success", "data": parsed_data})
-    except Exception as e:
-        error_trace = traceback.format_exc()
-        print(f"!!! CRITICAL AI ERROR !!!\n{error_trace}")
-        return jsonify({"status": "error", "message": str(e)}), 400
+        raw_text = response.text
+        
+        try:
+            clean_json = raw_text.replace('```json', '').replace('```', '').strip()
+            parsed_data = json.loads(clean_json)
+            return jsonify({"status": "success", "data": parsed_data})
+        except Exception as json_err:
+            return jsonify({"status": "error", "message": f"AI did not return math. AI said: {raw_text}"}), 400
+            
+    except Exception as api_err:
+        return jsonify({"status": "error", "message": f"Google API Error: {str(api_err)}"}), 400
 
 @app.route('/api/generate-advisory', methods=['POST'])
 def generate_advisory():
-    # THE FIX: tell Flask not to panic
     data = request.get_json(silent=True) or {}
+    
+    if not GEMINI_KEY:
+        return jsonify({"status": "error", "advisory": "GEMINI_API_KEY is missing!"})
+        
     weather_forecast = get_kakkayam_weather()
-    
     prompt = f"""
-    You are the Chief Engineer AI for Kakkayam Dam. 
-    Current Dam Status:
-    - Current WL: {data.get('wlCur')}m, Target WL: {data.get('wlTar')}m.
-    - Timeframe: {data.get('hours')} hours.
-    - Planned Spillway Discharge: {data.get('qSpill')} cumecs.
-    - Weather Forecast for Catchment: {weather_forecast}
-    
-    Write a short, professional "Risk & Weather Analysis" for the operators. 
-    If the planned discharge is high AND heavy rain is expected, warn them. 
-    Then, write a short official WhatsApp advisory for the District Collector.
+    You are the Chief Engineer AI for Kakkayam Dam. Current WL: {data.get('wlCur')}m, Target WL: {data.get('wlTar')}m. Timeframe: {data.get('hours')} hours. Planned Spillway Discharge: {data.get('qSpill')} cumecs. Weather Forecast: {weather_forecast}
+    Write a short, professional "Risk & Weather Analysis". If discharge is high AND heavy rain is expected, warn them. Write a short official WhatsApp advisory for the District Collector.
     """
+    
     try:
-        if not GEMINI_KEY:
-            raise ValueError("GEMINI_API_KEY is missing from Vercel Environment Variables!")
-            
         response = model.generate_content(prompt)
         return jsonify({"status": "success", "advisory": response.text, "weather": weather_forecast})
     except Exception as e:
-        error_trace = traceback.format_exc()
-        print(f"!!! CRITICAL AI ERROR !!!\n{error_trace}")
-        return jsonify({"status": "error", "advisory": "Error generating AI response."})
+        return jsonify({"status": "error", "advisory": f"Google API Error: {str(e)}"})
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=8080)
