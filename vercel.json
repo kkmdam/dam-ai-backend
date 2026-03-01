@@ -19,6 +19,11 @@
   "routes": [
     {
       "src": "/(.*)",
+      "methods": ["OPTIONS"],
+      "status": 200
+    },
+    {
+      "src": "/(.*)",
       "dest": "app.py"
     }
   ]
