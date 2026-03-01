@@ -12,7 +12,7 @@ WEATHER_KEY = os.environ.get("WEATHER_API_KEY", "").strip()
 
 def call_gemini(prompt):
     # Talking directly to Google's raw server, bypassing the buggy SDK!
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_KEY}"
+ url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key={GEMINI_KEY}"
     payload = {
         "contents": [{"parts": [{"text": prompt}]}],
         "generationConfig": {"temperature": 0.1}
