@@ -32,7 +32,9 @@ def get_kakkayam_weather():
 @app.route('/api/parse-plan', methods=['POST'])
 def parse_plan():
     print("--- NEW AI REQUEST RECEIVED ---")
-    data = request.json or {}
+    
+    # THE FIX: tell Flask not to panic, just quietly accept the data
+    data = request.get_json(silent=True) or {}
     user_message = data.get('message', '')
     
     prompt = f"""
@@ -63,7 +65,8 @@ def parse_plan():
 
 @app.route('/api/generate-advisory', methods=['POST'])
 def generate_advisory():
-    data = request.json or {}
+    # THE FIX: tell Flask not to panic
+    data = request.get_json(silent=True) or {}
     weather_forecast = get_kakkayam_weather()
     
     prompt = f"""
