@@ -8,14 +8,13 @@ import json
 app = Flask(__name__)
 CORS(app)
 
-# Fetch keys securely
-GEMINI_KEY = os.environ.get("GEMINI_API_KEY")
-WEATHER_KEY = os.environ.get("WEATHER_API_KEY")
+# Fetch key and immediately strip any accidental invisible spaces
+GEMINI_KEY = os.environ.get("GEMINI_API_KEY", "").strip()
+WEATHER_KEY = os.environ.get("WEATHER_API_KEY", "").strip()
 
 if GEMINI_KEY:
-    # .strip() removes any accidental invisible spaces!
-    genai.configure(api_key=GEMINI_KEY.strip())
-    # Upgraded to Google's newest, most reliable model
+    genai.configure(api_key=GEMINI_KEY)
+    # Using the newest, fastest Gemini model
     model = genai.GenerativeModel('gemini-1.5-flash')
 
 def get_kakkayam_weather():
@@ -37,10 +36,10 @@ def parse_plan():
     user_message = data.get('message', '')
     
     if not GEMINI_KEY:
-        return jsonify({"status": "error", "message": "CRASH: GEMINI_API_KEY is missing from Vercel Settings!"}), 400
+        return jsonify({"status": "error", "message": "VERCEL ERROR: GEMINI_API_KEY is missing from environment variables!"}), 400
         
     prompt = f"""
-    You are an AI assistant for a dam control room. Extract the following parameters from the user's message and return ONLY a strict JSON object. Do not include markdown formatting. If a value is not mentioned, use null.
+    You are an AI assistant for a dam control room. Extract the following parameters from the user's message and return ONLY a strict JSON object. DO NOT output any markdown formatting, backticks, or extra words. If a value is not mentioned, use null.
     User Message: "{user_message}"
     
     Expected JSON format:
@@ -54,24 +53,26 @@ def parse_plan():
     
     try:
         response = model.generate_content(prompt)
-        raw_text = response.text
+        raw_text = response.text.strip()
+        
+        # Aggressively clean the AI's response in case it uses markdown formatting
+        clean_json = raw_text.replace('```json', '').replace('```', '').strip()
         
         try:
-            clean_json = raw_text.replace('```json', '').replace('```', '').strip()
             parsed_data = json.loads(clean_json)
             return jsonify({"status": "success", "data": parsed_data})
         except Exception as json_err:
-            return jsonify({"status": "error", "message": f"AI did not return math. AI said: {raw_text}"}), 400
+            return jsonify({"status": "error", "message": f"AI MATH ERROR. The AI replied with: {raw_text}"}), 400
             
     except Exception as api_err:
-        return jsonify({"status": "error", "message": f"GOOGLE API ERROR: {str(api_err)}"}), 400
+        return jsonify({"status": "error", "message": f"GOOGLE API CRASH: {str(api_err)}"}), 400
 
 @app.route('/api/generate-advisory', methods=['POST'])
 def generate_advisory():
     data = request.get_json(silent=True) or {}
     
     if not GEMINI_KEY:
-        return jsonify({"status": "error", "advisory": "GEMINI_API_KEY is missing!"})
+        return jsonify({"status": "error", "advisory": "VERCEL ERROR: GEMINI_API_KEY is missing!"})
         
     weather_forecast = get_kakkayam_weather()
     prompt = f"""
