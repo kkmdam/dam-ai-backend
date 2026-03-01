@@ -1,9 +1,8 @@
-from flask import Flask, request, jsonify
-from flask_cors import CORS
-import google.generativeai as genai
-import requests
 import os
 import json
+import requests
+from flask import Flask, request, jsonify
+from flask_cors import CORS
 
 app = Flask(__name__)
 CORS(app)
@@ -11,16 +10,28 @@ CORS(app)
 GEMINI_KEY = os.environ.get("GEMINI_API_KEY", "").strip()
 WEATHER_KEY = os.environ.get("WEATHER_API_KEY", "").strip()
 
-if GEMINI_KEY:
-    genai.configure(api_key=GEMINI_KEY)
-    model = genai.GenerativeModel('gemini-pro')
+def call_gemini(prompt):
+    # Talking directly to Google's raw server, bypassing the buggy SDK!
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_KEY}"
+    payload = {
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {"temperature": 0.1}
+    }
+    headers = {"Content-Type": "application/json"}
+    
+    response = requests.post(url, json=payload, headers=headers)
+    if response.status_code != 200:
+        raise Exception(f"Google Server Error: {response.text}")
+        
+    data = response.json()
+    return data["candidates"][0]["content"]["parts"][0]["text"]
 
 def get_kakkayam_weather():
     lat, lon = "11.54", "75.92"
     url = f"https://api.openweathermap.org/data/2.5/forecast?lat={lat}&lon={lon}&appid={WEATHER_KEY}&units=metric"
     try:
-        response = requests.get(url).json()
-        rain_total = sum(item['rain']['3h'] for item in response.get('list', [])[:8] if 'rain' in item and '3h' in item['rain'])
+        resp = requests.get(url).json()
+        rain_total = sum(item['rain']['3h'] for item in resp.get('list', [])[:8] if 'rain' in item and '3h' in item['rain'])
         return f"Expected rainfall in next 24hrs: {round(rain_total, 1)} mm."
     except Exception:
         return "Weather data currently unavailable."
@@ -28,7 +39,7 @@ def get_kakkayam_weather():
 @app.route('/api/parse-plan', methods=['POST'])
 def parse_plan():
     if not GEMINI_KEY:
-        return jsonify({"status": "error", "message": "NEW SERVER ERROR: GEMINI_API_KEY is missing!"}), 400
+        return jsonify({"status": "error", "message": "GEMINI_API_KEY is missing!"}), 400
 
     data = request.get_json(silent=True) or {}
     user_message = data.get('message', '')
@@ -40,18 +51,17 @@ def parse_plan():
     """
 
     try:
-        response = model.generate_content(prompt)
-        raw = response.text.strip().replace('```json', '').replace('```', '')
-        parsed = json.loads(raw)
+        raw_text = call_gemini(prompt)
+        clean_json = raw_text.strip().replace('```json', '').replace('```', '')
+        parsed = json.loads(clean_json)
         return jsonify({"status": "success", "data": parsed})
     except Exception as e:
-        ai_reply = response.text if 'response' in locals() else 'None'
-        return jsonify({"status": "error", "message": f"AI CRASH: {str(e)} | AI SAID: {ai_reply}"}), 400
+        return jsonify({"status": "error", "message": f"DIRECT CONNECTION CRASH: {str(e)}"}), 400
 
 @app.route('/api/generate-advisory', methods=['POST'])
 def generate_advisory():
     if not GEMINI_KEY:
-        return jsonify({"status": "error", "advisory": "NEW SERVER ERROR: API Key missing!"})
+        return jsonify({"status": "error", "advisory": "API Key missing!"})
         
     data = request.get_json(silent=True) or {}
     forecast = get_kakkayam_weather()
@@ -59,8 +69,8 @@ def generate_advisory():
     prompt = f"Chief Engineer AI for Kakkayam Dam. WL: {data.get('wlCur')}m, Target: {data.get('wlTar')}m, Time: {data.get('hours')}h, Spill: {data.get('qSpill')} cumecs. Weather: {forecast}. Write a short Risk Analysis and a WhatsApp advisory for the District Collector."
     
     try:
-        response = model.generate_content(prompt)
-        return jsonify({"status": "success", "advisory": response.text, "weather": forecast})
+        advisory_text = call_gemini(prompt)
+        return jsonify({"status": "success", "advisory": advisory_text, "weather": forecast})
     except Exception as e:
         return jsonify({"status": "error", "advisory": f"AI Error: {str(e)}"})
 
