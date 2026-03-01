@@ -1,15 +1,20 @@
 from flask import Flask, request, jsonify
-from flask_cors import CORS
 import google.generativeai as genai
 import requests
 import os
 import json
 
 app = Flask(__name__)
-# This allows browsers to talk to this server
-CORS(app)
 
-# The server will hold these keys securely
+# THE NUCLEAR CORS FIX: Force approval headers on EVERY single response
+@app.after_request
+def add_cors_headers(response):
+    response.headers['Access-Control-Allow-Origin'] = '*'
+    response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
+    response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
+    return response
+
+# Load secure keys
 GEMINI_KEY = os.environ.get("GEMINI_API_KEY")
 WEATHER_KEY = os.environ.get("WEATHER_API_KEY")
 
@@ -31,14 +36,13 @@ def get_kakkayam_weather():
     except Exception as e:
         return "Weather data currently unavailable."
 
-# NOTE: We added 'OPTIONS' here to answer the browser's security check!
 @app.route('/api/parse-plan', methods=['POST', 'OPTIONS'])
 def parse_plan():
-    # Warmly answer the browser's test knock
+    # Instantly approve the browser's test knock
     if request.method == 'OPTIONS':
-        return jsonify({}), 200
+        return jsonify({"status": "ok"}), 200
         
-    data = request.json
+    data = request.json or {}
     user_message = data.get('message', '')
     
     prompt = f"""
@@ -47,10 +51,10 @@ def parse_plan():
     
     Expected JSON format:
     {{
-      "target_wl": float (the target water level in meters),
-      "time_hours": float (how many hours to evacuate),
-      "inflow": float (inflow in cumecs),
-      "powerhouse": float (powerhouse discharge in cumecs)
+      "target_wl": float,
+      "time_hours": float,
+      "inflow": float,
+      "powerhouse": float
     }}
     """
     try:
@@ -61,14 +65,13 @@ def parse_plan():
     except Exception as e:
         return jsonify({"status": "error", "message": "Could not parse parameters."}), 400
 
-# NOTE: We added 'OPTIONS' here too!
 @app.route('/api/generate-advisory', methods=['POST', 'OPTIONS'])
 def generate_advisory():
-    # Warmly answer the browser's test knock
+    # Instantly approve the browser's test knock
     if request.method == 'OPTIONS':
-        return jsonify({}), 200
+        return jsonify({"status": "ok"}), 200
         
-    data = request.json
+    data = request.json or {}
     weather_forecast = get_kakkayam_weather()
     
     prompt = f"""
