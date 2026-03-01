@@ -13,7 +13,7 @@ WEATHER_KEY = os.environ.get("WEATHER_API_KEY", "").strip()
 
 if GEMINI_KEY:
     genai.configure(api_key=GEMINI_KEY)
-    model = genai.GenerativeModel('gemini-1.5-flash')
+    model = genai.GenerativeModel('gemini-pro')
 
 def get_kakkayam_weather():
     lat, lon = "11.54", "75.92"
